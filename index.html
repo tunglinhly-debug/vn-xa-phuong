@@ -9,18 +9,19 @@
 <style>
 body {
   font-family: Arial, sans-serif;
-  margin: 20px;
+  margin: 20px auto;
   max-width: 900px;
 }
+h2 { margin-bottom: 10px }
 label { display:block; margin-top:14px; font-weight:bold }
 select, button {
   width:100%; padding:8px; margin-top:6px; font-size:15px
 }
 .code-box {
-  margin-top:12px; padding:8px;
+  margin-top:12px; padding:10px;
   background:#f6f8fa; border-radius:6px
 }
-#map { margin-top:20px; height:350px; background:#eee }
+#map { margin-top:20px; height:360px; background:#eee }
 .status { margin-top:10px; font-size:14px; color:#555 }
 </style>
 </head>
@@ -30,18 +31,17 @@ select, button {
 <h2>Tra cứu xã / phường Việt Nam</h2>
 
 <label>Tỉnh / Thành phố</label>
-<select id="province"></select>
+<select id="province">
+  <option>Đang tải dữ liệu...</option>
+</select>
 
-<label>Xã / Phường mới</label>
+<label>Xã / Phường (mới)</label>
 <select id="commune" disabled></select>
-
-<label>Địa chỉ cũ</label>
-<select id="oldAddress" disabled></select>
 
 <div class="code-box">
 <b>Mã hành chính</b>
-<div>Tỉnh/TP: <span id="codeProvince">N/A</span></div>
-<div>Xã/Phường: <span id="codeCommune">N/A</span></div>
+<div>Tỉnh / TP: <span id="codeProvince">N/A</span></div>
+<div>Xã / Phường: <span id="codeCommune">N/A</span></div>
 </div>
 
 <button onclick="exportCSV()">Xuất CSV</button>
@@ -54,103 +54,132 @@ select, button {
 const DATA_URL =
 "https://raw.githubusercontent.com/phucanhle/vn-xaphuong-2025/main/danhmucxaphuong.json";
 
-const CACHE_KEY="VN_XA_PHUONG_NORMALIZED";
-const CACHE_TIME="VN_XA_PHUONG_TIME";
+const CACHE_KEY="VN_XA_PHUONG_CACHE_FINAL";
+const CACHE_TIME="VN_XA_PHUONG_TIME_FINAL";
 const EXPIRE=1000*60*60*24*7;
 
-let data=[];
+const province = document.getElementById("province");
+const commune = document.getElementById("commune");
+const codeProvince = document.getElementById("codeProvince");
+const codeCommune = document.getElementById("codeCommune");
+const status = document.getElementById("status");
 
+let data = [];
+
+/* ===== NORMALIZE THE REAL JSON SCHEMA ===== */
 function normalize(raw){
- return raw.map(p=>{
-  const provinceName=p.ten_tinh||p.tinh||p.name||"Không rõ tỉnh";
-  const provinceCode=p.ma_tinh||p.code||"";
-  const xa=p.xa_phuong||p.phuong_xa||[];
-  return{
-   provinceName, provinceCode,
-   communes:xa.map(x=>{
-    let old=[];
-    if(Array.isArray(x.ten_cu)) old=x.ten_cu;
-    else if(typeof x.ten_cu==="string")
-      old=x.ten_cu.split(";").map(v=>v.trim());
-    return{
-     newName:x.ten_moi||x.ten||x.name||"Không rõ",
-     communeCode:x.ma_xa||x.code||"",
-     oldNames:old
-    };
-   })
-  };
- });
+  return raw.map(p => ({
+    provinceName: p.tentinhmoi,
+    provinceCode: p.matinhTMS || p.matinhBNV || "",
+    communes: (p.phuongxa || []).map(x => ({
+      communeName: x.tenphuongxa,
+      communeCode: x.maphuongxa
+    }))
+  }));
 }
 
-function load(){
- const c=localStorage.getItem(CACHE_KEY);
- const t=localStorage.getItem(CACHE_TIME);
- if(c&&t&&Date.now()-t<EXPIRE){
-  data=JSON.parse(c);
-  status.textContent="Dùng cache (offline OK)";
-  initProvince();
- }
- fetch(DATA_URL).then(r=>r.json()).then(raw=>{
-  data=normalize(raw);
-  localStorage.setItem(CACHE_KEY,JSON.stringify(data));
-  localStorage.setItem(CACHE_TIME,Date.now());
-  status.textContent="Dữ liệu đã tải & chuẩn hóa";
-  initProvince();
- });
-}
-
+/* ===== INIT PROVINCE DROPDOWN ===== */
 function initProvince(){
- province.innerHTML='<option value="">-- Chọn tỉnh --</option>';
- data.forEach((p,i)=>{
-  province.innerHTML+=`<option value="${i}">${p.provinceName}</option>`;
- });
-}
-
-province.onchange=function(){
- commune.innerHTML='<option value="">-- Chọn xã --</option>';
- oldAddress.innerHTML='';
- commune.disabled=oldAddress.disabled=true;
- if(this.value==="")return;
- const p=data[this.value];
- codeProvince.textContent=p.provinceCode||"N/A";
- p.communes.forEach((x,i)=>{
-  commune.innerHTML+=`<option value="${i}">${x.newName}</option>`;
- });
- commune.disabled=false;
-};
-
-commune.onchange=function(){
- oldAddress.innerHTML='';
- if(this.value==="")return;
- const x=data[province.value].communes[this.value];
- codeCommune.textContent=x.communeCode||"N/A";
- x.oldNames.forEach(o=>{
-  oldAddress.innerHTML+=`<option>${o}</option>`;
- });
- oldAddress.disabled=false;
-};
-
-function exportCSV(){
- const rows=[["Tỉnh","Mã tỉnh","Xã mới","Mã xã","Tên cũ"]];
- data.forEach(p=>{
-  p.communes.forEach(x=>{
-   if(x.oldNames.length)
-    x.oldNames.forEach(o=>rows.push([p.provinceName,p.provinceCode,x.newName,x.communeCode,o]));
-   else rows.push([p.provinceName,p.provinceCode,x.newName,x.communeCode,""]);
+  province.innerHTML =
+    '<option value="">-- Chọn tỉnh / thành phố --</option>';
+  data.forEach((p,i)=>{
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = p.provinceName;
+    province.appendChild(opt);
   });
- });
- const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");
- const b=new Blob([csv],{type:"text/csv"});
- const a=document.createElement("a");
- a.href=URL.createObjectURL(b);
- a.download="xa_phuong_vn.csv";
- a.click();
 }
 
-L.map("map").setView([16,108],5)
- .addLayer(L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"));
+/* ===== LOAD DATA WITH CACHE ===== */
+function loadData(){
+  const cache = localStorage.getItem(CACHE_KEY);
+  const time = localStorage.getItem(CACHE_TIME);
 
-load();
+  if(cache && time && Date.now()-time < EXPIRE){
+    data = JSON.parse(cache);
+    status.textContent = "Đang dùng dữ liệu cache (offline OK)";
+    initProvince();
+  }
+
+  fetch(DATA_URL)
+    .then(r => r.json())
+    .then(raw => {
+      data = normalize(raw);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      localStorage.setItem(CACHE_TIME, Date.now());
+      status.textContent = "Dữ liệu tải trực tiếp từ GitHub";
+      initProvince();
+    })
+    .catch(err => {
+      if(!cache){
+        status.textContent = "Không tải được dữ liệu";
+      }
+      console.error(err);
+    });
+}
+
+/* ===== EVENTS ===== */
+province.addEventListener("change", () => {
+  commune.innerHTML =
+    '<option value="">-- Chọn xã / phường --</option>';
+  commune.disabled = true;
+  codeCommune.textContent = "N/A";
+
+  if(province.value === ""){
+    codeProvince.textContent = "N/A";
+    return;
+  }
+
+  const p = data[province.value];
+  codeProvince.textContent = p.provinceCode || "N/A";
+
+  p.communes.forEach((x,i)=>{
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = x.communeName;
+    commune.appendChild(opt);
+  });
+
+  commune.disabled = false;
+});
+
+commune.addEventListener("change", () => {
+  if(commune.value === "") return;
+  const x = data[province.value].communes[commune.value];
+  codeCommune.textContent = x.communeCode || "N/A";
+});
+
+/* ===== EXPORT CSV ===== */
+function exportCSV(){
+  const rows = [["Tỉnh","Mã tỉnh","Xã/Phường","Mã xã"]];
+  data.forEach(p=>{
+    p.communes.forEach(x=>{
+      rows.push([
+        p.provinceName,
+        p.provinceCode,
+        x.communeName,
+        x.communeCode
+      ]);
+    });
+  });
+
+  const csv = "\uFEFF" + rows.map(r=>r.join(",")).join("\n");
+  const blob = new Blob([csv],{type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "xa_phuong_vn.csv";
+  a.click();
+}
+
+/* ===== MAP ===== */
+L.map("map")
+ .setView([16,108],5)
+ .addLayer(
+   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+ );
+
+loadData();
 </script>
+
 </body>
 </html>
