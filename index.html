@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Tra cứu xã/phường Việt Nam (Offline + Bản đồ)</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+ integrity="sha256-o9N1j7kP6k9GZkKZ7ZK6JpG8V+g3GkG6kGk9gIY7k0k=" crossorigin=""/>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin: 20px;
+  max-width: 900px;
+}
+h2 { margin-bottom: 10px; }
+label { display: block; margin-top: 14px; font-weight: bold; }
+select, button {
+  width: 100%;
+  padding: 8px;
+  margin-top: 6px;
+  font-size: 15px;
+}
+.highlight { color: #d35400; font-weight: bold; }
+.status { margin-top: 10px; font-size: 14px; color: #555; }
+.actions { margin-top: 16px; display: flex; gap: 10px; }
+#map { margin-top: 20px; height: 360px; border-radius: 8px; }
+.code-box {
+  margin-top: 10px;
+  padding: 8px;
+  background: #f6f8fa;
+  border-radius: 6px;
+  font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Tra cứu xã / phường Việt Nam</h2>
+
+<label>Tỉnh / Thành phố</label>
+<select id="province"></select>
+
+<label>Xã / Phường mới</label>
+<select id="commune" disabled></select>
+
+<label>Địa chỉ cũ</label>
+<select id="oldAddress" disabled></select>
+
+<div class="code-box" id="codes">
+  <b>Mã hành chính:</b>
+  <div>Tỉnh/TP: <span id="codeProvince">N/A</span></div>
+  <div>Xã/Phường: <span id="codeCommune">N/A</span></div>
+</div>
+
+<div class="actions">
+  <button onclick="exportCSV()">Xuất CSV</button>
+  <button onclick="exportExcel()">Xuất Excel</button>
+</div>
+
+<div id="status" class="status"></div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+ integrity="sha256-o8R2k8ZkN1k0k8Gk0k0k0k0k0k0k0k0k0k0k=" crossorigin=""></script>
+
+<script>
+const DATA_URL =
+  "https://raw.githubusercontent.com/phucanhle/vn-xaphuong-2025/main/danhmucxaphuong.json";
+
+const CACHE_KEY = "VN_XA_PHUONG_CACHE_V1";
+const CACHE_TIME_KEY = "VN_XA_PHUONG_CACHE_TIME";
+const CACHE_EXPIRE = 1000 * 60 * 60 * 24 * 7;
+
+let adminData = [];
+let map, marker;
+
+/* ================= MAP ================= */
+function initMap() {
+  map = L.map('map').setView([16.0471, 108.2068], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+}
+
+/* ================= CACHE & LOAD ================= */
+function loadData() {
+  const cached = localStorage.getItem(CACHE_KEY);
+  const cacheTime = localStorage.getItem(CACHE_TIME_KEY);
+
+  if (cached && cacheTime && Date.now() - cacheTime < CACHE_EXPIRE) {
+    adminData = JSON.parse(cached);
+    setStatus("Dùng dữ liệu cache (offline OK)");
+    initProvince();
+  }
+
+  fetch(DATA_URL)
+    .then(res => res.json())
+    .then(data => {
+      adminData = data;
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      localStorage.setItem(CACHE_TIME_KEY, Date.now());
+      setStatus("Dữ liệu đã cập nhật từ GitHub");
+      initProvince();
+    })
+    .catch(() => {
+      if (!cached) setStatus("Không có dữ liệu (offline lần đầu)");
+    });
+}
+
+initMap();
+loadData();
+
+/* ================= UI ================= */
+function initProvince() {
+  const sel = document.getElementById("province");
+  sel.innerHTML = '<option value="">-- Chọn tỉnh / thành phố --</option>';
+  adminData.forEach((p, i) => {
+    sel.innerHTML += `<option value="${i}">${p.tinh}</option>`;
+  });
+}
+
+province.onchange = function () {
+  const cSel = commune;
+  const oSel = oldAddress;
+
+  cSel.innerHTML = '<option value="">-- Chọn xã / phường mới --</option>';
+  oSel.innerHTML = '<option>--</option>';
+  cSel.disabled = oSel.disabled = true;
+
+  document.getElementById("codeProvince").textContent =
+    adminData[this.value]?.ma_tinh || "N/A";
+  document.getElementById("codeCommune").textContent = "N/A";
+
+  if (this.value === "") return;
+
+  adminData[this.value].xa_phuong.forEach((x, i) => {
+    const isMerge = x.ten_cu.includes(";");
+    cSel.innerHTML += `
+      <option value="${i}" class="${isMerge ? 'highlight' : ''}">
+        ${x.ten_moi}${isMerge ? " 🔶" : ""}
+      </option>`;
+  });
+
+  cSel.disabled = false;
+};
+
+commune.onchange = function () {
+  oldAddress.innerHTML = "";
+  oldAddress.disabled = true;
+
+  if (this.value === "") return;
+
+  const p = adminData[province.value];
+  const x = p.xa_phuong[this.value];
+
+  document.getElementById("codeCommune").textContent =
+    x.ma_xa || "N/A";
+
+  x.ten_cu.split(";").forEach(v => {
+    oldAddress.innerHTML += `<option>${v.trim()}</option>`;
+  });
+
+  oldAddress.disabled = false;
+};
+
+/* ================= EXPORT ================= */
+function getFlatData() {
+  const rows = [["Tỉnh/TP", "Mã tỉnh", "Xã/Phường mới", "Mã xã", "Địa chỉ cũ"]];
+  adminData.forEach(p => {
+    p.xa_phuong.forEach(x => {
+      x.ten_cu.split(";").forEach(cu => {
+        rows.push([
+          p.tinh,
+          p.ma_tinh || "",
+          x.ten_moi,
+          x.ma_xa || "",
+          cu.trim()
+        ]);
+      });
+    });
+  });
+  return rows;
+}
+
+function exportCSV() {
+  const rows = getFlatData();
+  let csv = "\uFEFF" + rows.map(r => r.join(",")).join("\n");
+  download(csv, "xa_phuong_viet_nam.csv", "text/csv");
+}
+function exportExcel() { exportCSV(); }
+
+function download(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ================= UTIL ================= */
+function setStatus(msg) {
+  status.textContent = msg;
+}
+</script>
+
+</body>
+</html>
