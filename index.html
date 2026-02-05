@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<title>Tra cứu xã/phường Việt Nam</title>
+<title>Tra cứu xã / phường Việt Nam</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
@@ -12,41 +12,16 @@ body {
   margin: 20px;
   max-width: 900px;
 }
-h2 { margin-bottom: 10px; }
-label { display: block; margin-top: 14px; font-weight: bold; }
+label { display:block; margin-top:14px; font-weight:bold }
 select, button {
-  width: 100%;
-  padding: 8px;
-  margin-top: 6px;
-  font-size: 15px;
-}
-.highlight {
-  color: #d35400;
-  font-weight: bold;
-}
-.status {
-  margin-top: 10px;
-  font-size: 14px;
-  color: #555;
-}
-.actions {
-  margin-top: 16px;
-  display: flex;
-  gap: 10px;
-}
-#map {
-  margin-top: 20px;
-  height: 360px;
-  border-radius: 8px;
-  background: #eee;
+  width:100%; padding:8px; margin-top:6px; font-size:15px
 }
 .code-box {
-  margin-top: 10px;
-  padding: 8px;
-  background: #f6f8fa;
-  border-radius: 6px;
-  font-size: 14px;
+  margin-top:12px; padding:8px;
+  background:#f6f8fa; border-radius:6px
 }
+#map { margin-top:20px; height:350px; background:#eee }
+.status { margin-top:10px; font-size:14px; color:#555 }
 </style>
 </head>
 
@@ -55,188 +30,127 @@ select, button {
 <h2>Tra cứu xã / phường Việt Nam</h2>
 
 <label>Tỉnh / Thành phố</label>
-<select id="province">
-  <option value="">-- Đang tải dữ liệu --</option>
-</select>
+<select id="province"></select>
 
 <label>Xã / Phường mới</label>
-<select id="commune" disabled>
-  <option value="">-- Chọn tỉnh trước --</option>
-</select>
+<select id="commune" disabled></select>
 
 <label>Địa chỉ cũ</label>
-<select id="oldAddress" disabled>
-  <option value="">-- Chọn xã/phường --</option>
-</select>
+<select id="oldAddress" disabled></select>
 
 <div class="code-box">
-  <b>Mã hành chính</b>
-  <div>Tỉnh/TP: <span id="codeProvince">N/A</span></div>
-  <div>Xã/Phường: <span id="codeCommune">N/A</span></div>
+<b>Mã hành chính</b>
+<div>Tỉnh/TP: <span id="codeProvince">N/A</span></div>
+<div>Xã/Phường: <span id="codeCommune">N/A</span></div>
 </div>
 
-<div class="actions">
-  <button onclick="exportCSV()">Xuất CSV</button>
-  <button onclick="exportExcel()">Xuất Excel</button>
-</div>
+<button onclick="exportCSV()">Xuất CSV</button>
 
-<div id="status" class="status">Đang khởi tạo…</div>
-
+<div id="status" class="status"></div>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <script>
 const DATA_URL =
-  "https://raw.githubusercontent.com/phucanhle/vn-xaphuong-2025/main/danhmucxaphuong.json";
+"https://raw.githubusercontent.com/phucanhle/vn-xaphuong-2025/main/danhmucxaphuong.json";
 
-const CACHE_KEY = "VN_XA_PHUONG_CACHE_V2";
-const CACHE_TIME_KEY = "VN_XA_PHUONG_CACHE_TIME";
-const CACHE_EXPIRE = 1000 * 60 * 60 * 24 * 7;
+const CACHE_KEY="VN_XA_PHUONG_NORMALIZED";
+const CACHE_TIME="VN_XA_PHUONG_TIME";
+const EXPIRE=1000*60*60*24*7;
 
-let adminData = [];
-let map;
+let data=[];
 
-function initMap() {
-  try {
-    map = L.map("map").setView([16.0, 108.0], 5);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(map);
-  } catch (e) {
-    document.getElementById("map").innerHTML =
-      "<div style='padding:10px'>Không tải được bản đồ</div>";
-  }
+function normalize(raw){
+ return raw.map(p=>{
+  const provinceName=p.ten_tinh||p.tinh||p.name||"Không rõ tỉnh";
+  const provinceCode=p.ma_tinh||p.code||"";
+  const xa=p.xa_phuong||p.phuong_xa||[];
+  return{
+   provinceName, provinceCode,
+   communes:xa.map(x=>{
+    let old=[];
+    if(Array.isArray(x.ten_cu)) old=x.ten_cu;
+    else if(typeof x.ten_cu==="string")
+      old=x.ten_cu.split(";").map(v=>v.trim());
+    return{
+     newName:x.ten_moi||x.ten||x.name||"Không rõ",
+     communeCode:x.ma_xa||x.code||"",
+     oldNames:old
+    };
+   })
+  };
+ });
 }
 
-function setStatus(msg) {
-  document.getElementById("status").textContent = msg;
+function load(){
+ const c=localStorage.getItem(CACHE_KEY);
+ const t=localStorage.getItem(CACHE_TIME);
+ if(c&&t&&Date.now()-t<EXPIRE){
+  data=JSON.parse(c);
+  status.textContent="Dùng cache (offline OK)";
+  initProvince();
+ }
+ fetch(DATA_URL).then(r=>r.json()).then(raw=>{
+  data=normalize(raw);
+  localStorage.setItem(CACHE_KEY,JSON.stringify(data));
+  localStorage.setItem(CACHE_TIME,Date.now());
+  status.textContent="Dữ liệu đã tải & chuẩn hóa";
+  initProvince();
+ });
 }
 
-function loadData() {
-  const cached = localStorage.getItem(CACHE_KEY);
-  const cacheTime = localStorage.getItem(CACHE_TIME_KEY);
-
-  if (cached && cacheTime && Date.now() - cacheTime < CACHE_EXPIRE) {
-    adminData = JSON.parse(cached);
-    setStatus("Đang dùng dữ liệu cache (offline OK)");
-    initProvince();
-  }
-
-  fetch(DATA_URL)
-    .then(r => r.json())
-    .then(data => {
-      adminData = data;
-      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-      localStorage.setItem(CACHE_TIME_KEY, Date.now());
-      setStatus("Dữ liệu đã tải từ GitHub");
-      initProvince();
-    })
-    .catch(err => {
-      if (!cached) {
-        setStatus("Không tải được dữ liệu từ GitHub");
-        console.error(err);
-      }
-    });
+function initProvince(){
+ province.innerHTML='<option value="">-- Chọn tỉnh --</option>';
+ data.forEach((p,i)=>{
+  province.innerHTML+=`<option value="${i}">${p.provinceName}</option>`;
+ });
 }
 
-function initProvince() {
-  const sel = document.getElementById("province");
-  sel.innerHTML = '<option value="">-- Chọn tỉnh / thành phố --</option>';
-  adminData.forEach((p, i) => {
-    sel.innerHTML += `<option value="${i}">${p.tinh}</option>`;
-  });
-}
-
-province.onchange = function () {
-  const cSel = commune;
-  const oSel = oldAddress;
-
-  cSel.innerHTML = '<option value="">-- Chọn xã / phường mới --</option>';
-  oSel.innerHTML = '<option value="">--</option>';
-  cSel.disabled = oSel.disabled = true;
-
-  document.getElementById("codeProvince").textContent =
-    adminData[this.value]?.ma_tinh || "N/A";
-  document.getElementById("codeCommune").textContent = "N/A";
-
-  if (this.value === "") return;
-
-  adminData[this.value].xa_phuong.forEach((x, i) => {
-    const isMerge = x.ten_cu && x.ten_cu.includes(";");
-    cSel.innerHTML +=
-      `<option value="${i}" class="${isMerge ? "highlight" : ""}">
-        ${x.ten_moi}${isMerge ? " 🔶" : ""}
-      </option>`;
-  });
-
-  cSel.disabled = false;
+province.onchange=function(){
+ commune.innerHTML='<option value="">-- Chọn xã --</option>';
+ oldAddress.innerHTML='';
+ commune.disabled=oldAddress.disabled=true;
+ if(this.value==="")return;
+ const p=data[this.value];
+ codeProvince.textContent=p.provinceCode||"N/A";
+ p.communes.forEach((x,i)=>{
+  commune.innerHTML+=`<option value="${i}">${x.newName}</option>`;
+ });
+ commune.disabled=false;
 };
 
-commune.onchange = function () {
-  oldAddress.innerHTML = "";
-  oldAddress.disabled = true;
-
-  if (this.value === "") return;
-
-  const p = adminData[province.value];
-  const x = p.xa_phuong[this.value];
-
-  document.getElementById("codeCommune").textContent =
-    x.ma_xa || "N/A";
-
-  if (x.ten_cu) {
-    x.ten_cu.split(";").forEach(v => {
-      oldAddress.innerHTML += `<option>${v.trim()}</option>`;
-    });
-  }
-
-  oldAddress.disabled = false;
+commune.onchange=function(){
+ oldAddress.innerHTML='';
+ if(this.value==="")return;
+ const x=data[province.value].communes[this.value];
+ codeCommune.textContent=x.communeCode||"N/A";
+ x.oldNames.forEach(o=>{
+  oldAddress.innerHTML+=`<option>${o}</option>`;
+ });
+ oldAddress.disabled=false;
 };
 
-function getFlatData() {
-  const rows = [["Tỉnh/TP", "Mã tỉnh", "Xã/Phường mới", "Mã xã", "Địa chỉ cũ"]];
-  adminData.forEach(p => {
-    p.xa_phuong.forEach(x => {
-      if (!x.ten_cu) return;
-      x.ten_cu.split(";").forEach(cu => {
-        rows.push([
-          p.tinh,
-          p.ma_tinh || "",
-          x.ten_moi,
-          x.ma_xa || "",
-          cu.trim()
-        ]);
-      });
-    });
+function exportCSV(){
+ const rows=[["Tỉnh","Mã tỉnh","Xã mới","Mã xã","Tên cũ"]];
+ data.forEach(p=>{
+  p.communes.forEach(x=>{
+   if(x.oldNames.length)
+    x.oldNames.forEach(o=>rows.push([p.provinceName,p.provinceCode,x.newName,x.communeCode,o]));
+   else rows.push([p.provinceName,p.provinceCode,x.newName,x.communeCode,""]);
   });
-  return rows;
+ });
+ const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");
+ const b=new Blob([csv],{type:"text/csv"});
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(b);
+ a.download="xa_phuong_vn.csv";
+ a.click();
 }
 
-function exportCSV() {
-  const rows = getFlatData();
-  const csv = "\uFEFF" + rows.map(r => r.join(",")).join("\n");
-  download(csv, "xa_phuong_viet_nam.csv", "text/csv");
-}
+L.map("map").setView([16,108],5)
+ .addLayer(L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"));
 
-function exportExcel() {
-  exportCSV();
-}
-
-function download(content, filename, type) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-initMap();
-loadData();
+load();
 </script>
-
 </body>
 </html>
