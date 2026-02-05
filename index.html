@@ -2,10 +2,9 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<title>Tra cứu xã/phường Việt Nam (Offline + Bản đồ)</title>
+<title>Tra cứu xã/phường Việt Nam</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
- integrity="sha256-o9N1j7kP6k9GZkKZ7ZK6JpG8V+g3GkG6kGk9gIY7k0k=" crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
 body {
@@ -21,10 +20,26 @@ select, button {
   margin-top: 6px;
   font-size: 15px;
 }
-.highlight { color: #d35400; font-weight: bold; }
-.status { margin-top: 10px; font-size: 14px; color: #555; }
-.actions { margin-top: 16px; display: flex; gap: 10px; }
-#map { margin-top: 20px; height: 360px; border-radius: 8px; }
+.highlight {
+  color: #d35400;
+  font-weight: bold;
+}
+.status {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #555;
+}
+.actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+}
+#map {
+  margin-top: 20px;
+  height: 360px;
+  border-radius: 8px;
+  background: #eee;
+}
 .code-box {
   margin-top: 10px;
   padding: 8px;
@@ -40,16 +55,22 @@ select, button {
 <h2>Tra cứu xã / phường Việt Nam</h2>
 
 <label>Tỉnh / Thành phố</label>
-<select id="province"></select>
+<select id="province">
+  <option value="">-- Đang tải dữ liệu --</option>
+</select>
 
 <label>Xã / Phường mới</label>
-<select id="commune" disabled></select>
+<select id="commune" disabled>
+  <option value="">-- Chọn tỉnh trước --</option>
+</select>
 
 <label>Địa chỉ cũ</label>
-<select id="oldAddress" disabled></select>
+<select id="oldAddress" disabled>
+  <option value="">-- Chọn xã/phường --</option>
+</select>
 
-<div class="code-box" id="codes">
-  <b>Mã hành chính:</b>
+<div class="code-box">
+  <b>Mã hành chính</b>
   <div>Tỉnh/TP: <span id="codeProvince">N/A</span></div>
   <div>Xã/Phường: <span id="codeCommune">N/A</span></div>
 </div>
@@ -59,62 +80,67 @@ select, button {
   <button onclick="exportExcel()">Xuất Excel</button>
 </div>
 
-<div id="status" class="status"></div>
+<div id="status" class="status">Đang khởi tạo…</div>
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
- integrity="sha256-o8R2k8ZkN1k0k8Gk0k0k0k0k0k0k0k0k0k0k=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 const DATA_URL =
   "https://raw.githubusercontent.com/phucanhle/vn-xaphuong-2025/main/danhmucxaphuong.json";
 
-const CACHE_KEY = "VN_XA_PHUONG_CACHE_V1";
+const CACHE_KEY = "VN_XA_PHUONG_CACHE_V2";
 const CACHE_TIME_KEY = "VN_XA_PHUONG_CACHE_TIME";
 const CACHE_EXPIRE = 1000 * 60 * 60 * 24 * 7;
 
 let adminData = [];
-let map, marker;
+let map;
 
-/* ================= MAP ================= */
 function initMap() {
-  map = L.map('map').setView([16.0471, 108.2068], 5);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; OpenStreetMap'
-  }).addTo(map);
+  try {
+    map = L.map("map").setView([16.0, 108.0], 5);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap"
+    }).addTo(map);
+  } catch (e) {
+    document.getElementById("map").innerHTML =
+      "<div style='padding:10px'>Không tải được bản đồ</div>";
+  }
 }
 
-/* ================= CACHE & LOAD ================= */
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
 function loadData() {
   const cached = localStorage.getItem(CACHE_KEY);
   const cacheTime = localStorage.getItem(CACHE_TIME_KEY);
 
   if (cached && cacheTime && Date.now() - cacheTime < CACHE_EXPIRE) {
     adminData = JSON.parse(cached);
-    setStatus("Dùng dữ liệu cache (offline OK)");
+    setStatus("Đang dùng dữ liệu cache (offline OK)");
     initProvince();
   }
 
   fetch(DATA_URL)
-    .then(res => res.json())
+    .then(r => r.json())
     .then(data => {
       adminData = data;
       localStorage.setItem(CACHE_KEY, JSON.stringify(data));
       localStorage.setItem(CACHE_TIME_KEY, Date.now());
-      setStatus("Dữ liệu đã cập nhật từ GitHub");
+      setStatus("Dữ liệu đã tải từ GitHub");
       initProvince();
     })
-    .catch(() => {
-      if (!cached) setStatus("Không có dữ liệu (offline lần đầu)");
+    .catch(err => {
+      if (!cached) {
+        setStatus("Không tải được dữ liệu từ GitHub");
+        console.error(err);
+      }
     });
 }
 
-initMap();
-loadData();
-
-/* ================= UI ================= */
 function initProvince() {
   const sel = document.getElementById("province");
   sel.innerHTML = '<option value="">-- Chọn tỉnh / thành phố --</option>';
@@ -128,7 +154,7 @@ province.onchange = function () {
   const oSel = oldAddress;
 
   cSel.innerHTML = '<option value="">-- Chọn xã / phường mới --</option>';
-  oSel.innerHTML = '<option>--</option>';
+  oSel.innerHTML = '<option value="">--</option>';
   cSel.disabled = oSel.disabled = true;
 
   document.getElementById("codeProvince").textContent =
@@ -138,9 +164,9 @@ province.onchange = function () {
   if (this.value === "") return;
 
   adminData[this.value].xa_phuong.forEach((x, i) => {
-    const isMerge = x.ten_cu.includes(";");
-    cSel.innerHTML += `
-      <option value="${i}" class="${isMerge ? 'highlight' : ''}">
+    const isMerge = x.ten_cu && x.ten_cu.includes(";");
+    cSel.innerHTML +=
+      `<option value="${i}" class="${isMerge ? "highlight" : ""}">
         ${x.ten_moi}${isMerge ? " 🔶" : ""}
       </option>`;
   });
@@ -160,18 +186,20 @@ commune.onchange = function () {
   document.getElementById("codeCommune").textContent =
     x.ma_xa || "N/A";
 
-  x.ten_cu.split(";").forEach(v => {
-    oldAddress.innerHTML += `<option>${v.trim()}</option>`;
-  });
+  if (x.ten_cu) {
+    x.ten_cu.split(";").forEach(v => {
+      oldAddress.innerHTML += `<option>${v.trim()}</option>`;
+    });
+  }
 
   oldAddress.disabled = false;
 };
 
-/* ================= EXPORT ================= */
 function getFlatData() {
   const rows = [["Tỉnh/TP", "Mã tỉnh", "Xã/Phường mới", "Mã xã", "Địa chỉ cũ"]];
   adminData.forEach(p => {
     p.xa_phuong.forEach(x => {
+      if (!x.ten_cu) return;
       x.ten_cu.split(";").forEach(cu => {
         rows.push([
           p.tinh,
@@ -188,10 +216,13 @@ function getFlatData() {
 
 function exportCSV() {
   const rows = getFlatData();
-  let csv = "\uFEFF" + rows.map(r => r.join(",")).join("\n");
+  const csv = "\uFEFF" + rows.map(r => r.join(",")).join("\n");
   download(csv, "xa_phuong_viet_nam.csv", "text/csv");
 }
-function exportExcel() { exportCSV(); }
+
+function exportExcel() {
+  exportCSV();
+}
 
 function download(content, filename, type) {
   const blob = new Blob([content], { type });
@@ -203,10 +234,8 @@ function download(content, filename, type) {
   URL.revokeObjectURL(url);
 }
 
-/* ================= UTIL ================= */
-function setStatus(msg) {
-  status.textContent = msg;
-}
+initMap();
+loadData();
 </script>
 
 </body>
